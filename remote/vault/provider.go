@@ -3,14 +3,15 @@ package vault
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/url"
 
-	"emperror.dev/errors"
 	"github.com/hashicorp/vault/api"
 	"github.com/spf13/viper"
 
-	"github.com/sagikazarmark/viperx/remote"
+	"github.com/dr4hcu5-jan/viper-vault/remote"
 )
 
 // nolint: gochecknoinits
@@ -36,20 +37,16 @@ func (p ConfigProvider) Get(rp viper.RemoteProvider) (io.Reader, error) {
 		endpoint := rp.Endpoint()
 		u, err := url.Parse(endpoint)
 		if err != nil {
-			return nil, errors.WrapIf(err, "failed to parse provider endpoint")
+			return nil, fmt.Errorf("failed to parse provider endpoint: %w", err)
 		}
 
-		query := u.Query()
-		u.RawQuery = ""
-
 		config := api.DefaultConfig()
+		_ = config.ReadEnvironment()
 		config.Address = u.String()
 		c, err := api.NewClient(config)
 		if err != nil {
-			return nil, errors.WrapIf(err, "failed to create vault api client")
+			return nil, fmt.Errorf("failed to create vault api client: %w", err)
 		}
-
-		c.SetToken(query.Get("token"))
 
 		client = c
 		p.clients[endpoint] = c
@@ -57,20 +54,20 @@ func (p ConfigProvider) Get(rp viper.RemoteProvider) (io.Reader, error) {
 
 	secret, err := client.Logical().Read(rp.Path())
 	if err != nil {
-		return nil, errors.WrapIf(err, "failed to read secret")
+		return nil, fmt.Errorf("failed to read secret: %w", err)
 	}
 
 	if secret == nil {
-		return nil, errors.Errorf("source not found: %s", rp.Path())
+		return nil, fmt.Errorf("source not found: %s", rp.Path())
 	}
 
 	if secret.Data == nil && secret.Warnings != nil {
-		return nil, errors.Errorf("source: %s errors: %v", rp.Path(), secret.Warnings)
+		return nil, fmt.Errorf("source: %s errors: %v", rp.Path(), secret.Warnings)
 	}
 
 	b, err := json.Marshal(secret.Data["data"])
 	if err != nil {
-		return nil, errors.WrapIf(err, "failed to json encode secret")
+		return nil, fmt.Errorf("failed to json encode secret: %w", err)
 	}
 
 	return bytes.NewReader(b), nil
